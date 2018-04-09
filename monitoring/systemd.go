@@ -82,6 +82,7 @@ func (r systemdChecker) Check(ctx context.Context, reporter health.Reporter) {
 	}
 }
 
+// systemdStatus talks to Systemd via DBus to check units status
 func systemdStatus() ([]serviceStatus, error) {
 	conn, err := dbus.New()
 	if err != nil {
@@ -169,3 +170,77 @@ const (
 	activeStateActivating               = "activating"
 	activeStateDeactivating             = "deactivating"
 )
+
+// IsUnitRunning checks if a specific Systemd Unit is running to Systemd via DBus to check units status
+func DisableUnit(unitName string) error {
+	conn, err := dbus.New()
+	if err != nil {
+		return trace.Wrap(err, "failed to connect to dbus")
+	}
+	defer conn.Close()
+
+	_, err = conn.StopUnit(unitName, "replace", nil)
+	if err != nil {
+		return trace.Wrap(err, "failed to stop systemd unit")
+	}
+
+	// identify the UnitFile
+	var units []dbus.UnitStatus
+	units, err = conn.ListUnitsByNames([]string{
+		unitName,
+	})
+	if err != nil {
+		return trace.Wrap(err, "failed to list systemd units")
+	}
+
+	if length(units) > 1 {
+		return trace.Error("More than unit found with the same name: %s", unitName)
+	}
+	unitFile := units[0].GetUnitProperty("Path")
+
+	// Disable the Unit using the retrieved the UnitFile
+	_, err = conn.DisableUnitFiles(unitFile, false)
+	if err != nil {
+		return trace.Wrap(err, "failed to list systemd units")
+	}
+
+	if length(units) > 1 {
+		return trace.Error("More than unit found with the same name: %s", unitName)
+	}
+	unitFile := units[0].GetUnitProperty("Path")
+
+	// check that the Unit is actually Inactive or Deactivating
+	if unit.ActiveState == activeStateInactive || unit.LoadState == loadStateDeactivating {
+		return nil
+	}
+
+	return trace.Error("Couldn't stop the systemd Unit")
+}
+
+// IsUnitRunning checks if a specific Systemd Unit is running to Systemd via DBus to check units status
+func IsUnitRunning(unitName string) (bool, error) {
+	conn, err := dbus.New()
+	if err != nil {
+		return nil, trace.Wrap(err, "failed to connect to dbus")
+	}
+	defer conn.Close()
+
+	var units []dbus.UnitStatus
+	units, err = conn.ListUnitsByNames([]string{
+		unitName,
+	})
+	if err != nil {
+		return nil, trace.Wrap(err, "failed to list systemd units")
+	}
+
+	if length(units) > 1 {
+		return nil, trace.Error("More than unit found with the same name: %s", unitName)
+	}
+	unit := units[0]
+
+	if unit.ActiveState == activeStateActive || unit.LoadState == loadStateActivating || unit.ActiveState == activeStateReloading {
+		return true, nil
+	}
+
+	return false, nil
+}
