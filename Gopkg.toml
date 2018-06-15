@@ -83,7 +83,8 @@
 
 [[constraint]]
   name = "golang.org/x/net"
-  branch = "release-branch.go1.9"
+  #branch = "release-branch.go1.9"
+  branch = "master"
 
 [[constraint]]
   name = "google.golang.org/grpc"
